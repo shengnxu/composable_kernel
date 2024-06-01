@@ -135,7 +135,7 @@ bool profile_grouped_conv_bwd_data_impl(int do_verification,
             auto invoker_ptr = op_ptr->MakeInvokerPointer();
 
             float avg_time =
-                invoker_ptr->Run(argument_ptr.get(), StreamConfig{nullptr, time_kernel});
+                invoker_ptr->Run(argument_ptr.get(), StreamConfig{nullptr, time_kernel, 0, 20, 50});
 
             std::size_t flop      = conv_param.GetFlops();
             std::size_t num_btype = conv_param.GetByte<InDataType, WeiDataType, OutDataType>();
