@@ -13,7 +13,7 @@
 #include "ck/tensor_operation/gpu/device/device_grouped_conv_bwd_data_multiple_d.hpp"
 #include "ck/tensor_operation/gpu/device/convolution_backward_data_specialization.hpp"
 #include "ck/tensor_operation/operator_transform/transform_conv_bwd_data_to_gemm_v1.hpp"
-#include "ck/tensor_operation/gpu/grid/gridwise_gemm_multi_d_xdl_cshuffle_v3.hpp"
+#include "ck/tensor_operation/gpu/grid/gridwise_gemm_xdl_cshuffle_v3_multi_d.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_conv_utils.hpp"
 #include "ck/host_utility/device_prop.hpp"
@@ -30,7 +30,9 @@ namespace {
 template <typename GridwiseGemm,
           typename AGridDesc_AK0_M_K1,
           typename BGridDesc_BK0_N_K1,
+          typename DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
           typename CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+          typename Block2ETileMap,
           typename ComputePtrOffsetOfBatch,
           bool HasMainKBlockLoop,
           InMemoryDataOperationEnum CGlobalMemoryDataOperation,
@@ -43,6 +45,13 @@ __global__ void
     // __attribute__((amdgpu_waves_per_eu(1, 1)))
     kernel_grouped_conv_bwd_data_xdl_cshuffle_v3(
         typename GridwiseGemm::Argument karg,
+        const AGridDesc_AK0_M_K1 a_grid_desc_ak0_m_ak1,
+        const BGridDesc_BK0_N_K1 b_grid_desc_bk0_n_bk1,
+        const DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock
+            ds_grid_desc_mblock_mperblock_nblock_nperblock,
+        const CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock
+            c_grid_desc_mblock_mperblock_nblock_nperblock,
+        const Block2ETileMap block_2_ctile_map,
         const ComputePtrOffsetOfBatch compute_ptr_offset_of_batch,
         const index_t batch_count)
 {
@@ -74,7 +83,11 @@ __global__ void
         p_ds_grid_grp,
         karg.p_c_grid + e_batch_offset,
         p_shared,
-        karg,
+        a_grid_desc_ak0_m_ak1,
+        b_grid_desc_bk0_n_bk1,
+        ds_grid_desc_mblock_mperblock_nblock_nperblock,
+        c_grid_desc_mblock_mperblock_nblock_nperblock,
+        block_2_ctile_map,
         karg.a_element_op,
         karg.b_element_op,
         karg.c_element_op);
@@ -83,6 +96,7 @@ __global__ void
 #endif // end of if (defined(__gfx908__) || defined(__gfx90a__))
 }
 
+#if 0
 template <typename GridwiseGemm,
           typename AGridDesc_AK0_M_K1,
           typename BGridDesc_BK0_N_K1,
@@ -142,6 +156,7 @@ __global__ void
     ignore = karg;
 #endif // end of if (defined(__gfx908__) || defined(__gfx90a__))
 }
+#endif
 
 } // namespace
 
@@ -315,24 +330,55 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
             a_grid_desc_ak0_m_ak1, b_grid_desc_bk0_n_bk1, ds_grid_desc_m_n, e_grid_desc_m_n);
     }
 
-#define GridwiseGemmMultiDTemplateParams                                                       \
-    tensor_layout::gemm::RowMajor, tensor_layout::gemm::ColumnMajor,                           \
-        tensor_layout::gemm::RowMajor, ADataType, BDataType, AccDataType, CShuffleDataType,    \
-        DsDataType, EDataType, AElementwiseOp, BElementwiseOp, CDEElementwiseOp, GemmSpec,     \
-        BlockSize, MPerBlock, NPerBlock, KPerBlock, AK1, BK1, MPerXDL, NPerXDL, MXdlPerWave,   \
-        NXdlPerWave, ABlockTransferThreadClusterLengths_AK0_M_AK1,                             \
-        ABlockTransferThreadClusterArrangeOrder, ABlockTransferSrcAccessOrder,                 \
-        ABlockTransferSrcVectorDim, ABlockTransferSrcScalarPerVector,                          \
-        ABlockTransferDstScalarPerVector_AK1, false, ABlockLdsExtraM,                          \
-        BBlockTransferThreadClusterLengths_BK0_N_BK1, BBlockTransferThreadClusterArrangeOrder, \
-        BBlockTransferSrcAccessOrder, BBlockTransferSrcVectorDim,                              \
-        BBlockTransferSrcScalarPerVector, BBlockTransferDstScalarPerVector_BK1, false,         \
-        BBlockLdsExtraN, CShuffleMXdlPerWavePerShuffle, CShuffleNXdlPerWavePerShuffle,         \
-        CDEBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,                      \
-        CDEBlockTransferScalarPerVector_NPerBlock, BlkGemmPipeSched, BlkGemmPipelineVer,       \
-        AComputeType, BComputeType
-
-    using GridwiseGemm = GridwiseGemmMultiD_xdl_cshuffle_v3<GridwiseGemmMultiDTemplateParams>;
+    using GridwiseGemm = GridwiseGemmMultiD_xdl_cshuffle_v3<
+        tensor_layout::gemm::RowMajor,
+        tensor_layout::gemm::RowMajor,
+        Tuple<>,
+        tensor_layout::gemm::RowMajor,
+        ADataType,
+        BDataType,
+        AccDataType,
+        CShuffleDataType,
+        DsDataType,
+        EDataType,
+        AElementwiseOp,
+        BElementwiseOp,
+        CDEElementwiseOp,
+        GemmSpec,
+        BlockSize,
+        MPerBlock,
+        NPerBlock,
+        KPerBlock,
+        AK1,
+        BK1,
+        MPerXDL,
+        NPerXDL,
+        MXdlPerWave,
+        NXdlPerWave,
+        ABlockTransferThreadClusterLengths_AK0_M_AK1,
+        ABlockTransferThreadClusterArrangeOrder,
+        ABlockTransferSrcAccessOrder,
+        ABlockTransferSrcVectorDim,
+        ABlockTransferSrcScalarPerVector,
+        ABlockTransferDstScalarPerVector_AK1,
+        false,
+        ABlockLdsExtraM,
+        BBlockTransferThreadClusterLengths_BK0_N_BK1,
+        BBlockTransferThreadClusterArrangeOrder,
+        BBlockTransferSrcAccessOrder,
+        BBlockTransferSrcVectorDim,
+        BBlockTransferSrcScalarPerVector,
+        BBlockTransferDstScalarPerVector_BK1,
+        false,
+        BBlockLdsExtraN,
+        CShuffleMXdlPerWavePerShuffle,
+        CShuffleNXdlPerWavePerShuffle,
+        CDEBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
+        Sequence<CDEBlockTransferScalarPerVector_NPerBlock>,
+        BlkGemmPipeSched,
+        BlkGemmPipelineVer,
+        AComputeType,
+        BComputeType>;
 
     template <typename EGridDesc_M_N>
     static auto
@@ -366,8 +412,8 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
     using DsGridDesc_M_N      = remove_cvref_t<tuple_element_t<2, ABDsEGridDesc>>;
     using EGridDesc_M_N       = remove_cvref_t<tuple_element_t<3, ABDsEGridDesc>>;
 
-    //using AGridDesc_M_K = decltype(transform_k0_m_k1_to_m_k(AGridDesc_AK0_M_AK1{}));
-    //using BGridDesc_N_K = decltype(transform_k0_m_k1_to_m_k(BGridDesc_BK0_N_BK1{}));
+    // using AGridDesc_M_K = decltype(transform_k0_m_k1_to_m_k(AGridDesc_AK0_M_AK1{}));
+    // using BGridDesc_N_K = decltype(transform_k0_m_k1_to_m_k(BGridDesc_BK0_N_BK1{}));
 
     using DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock =
         decltype(GridwiseGemm::MakeDsGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
@@ -377,7 +423,6 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
 
     // block-to-e-tile map
     using Block2ETileMap = typename GridwiseGemm::Block2CTileMap;
-    ;
 
     // Argument
     struct Argument : public BaseArgument
@@ -692,6 +737,8 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                 const bool has_main_k_block_loop =
                     GridwiseGemm::CalculateHasMainKBlockLoop(K_split);
 
+                const auto block_2_ctile_map = Block2ETileMap{GemmM, GemmN, 4};
+
                 typename GridwiseGemm::Argument gemm_arg{
                     arg.p_a_grid_,
                     arg.p_b_grid_,
@@ -752,6 +799,11 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             dim3(BlockSize),
                             0,
                             gemm_arg,
+                            arg.a_grid_desc_ak0_m_ak1_container_[i],
+                            arg.b_grid_desc_bk0_n_bk1_container_[i],
+                            arg.ds_grid_desc_mblock_mperblock_nblock_nperblock_container_[i],
+                            arg.e_grid_desc_mblock_mperblock_nblock_nperblock_container_[i],
+                            block_2_ctile_map,
                             arg.compute_ptr_offset_of_batch_,
                             arg.a_g_n_k_wos_lengths_[0]);
                     }
@@ -767,7 +819,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             GridwiseGemm,
                             DeviceOp::AGridDesc_AK0_M_AK1,
                             DeviceOp::BGridDesc_BK0_N_BK1,
+                            DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                             DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                            DeviceOp::Block2ETileMap,
                             ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                             true,
                             InMemoryDataOperationEnum::Set,
@@ -783,7 +837,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                 GridwiseGemm,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
+                                DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                 DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                DeviceOp::Block2ETileMap,
                                 ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                 true,
                                 InMemoryDataOperationEnum::Set,
@@ -798,7 +854,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                 GridwiseGemm,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
+                                DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                 DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                DeviceOp::Block2ETileMap,
                                 ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                 true,
                                 InMemoryDataOperationEnum::Set,
@@ -815,7 +873,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -834,7 +894,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -853,7 +915,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -872,7 +936,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -890,7 +956,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -909,7 +977,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                     GridwiseGemm,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
+                                    DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                     DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                    DeviceOp::Block2ETileMap,
                                     ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                     true,
                                     InMemoryDataOperationEnum::Set,
@@ -919,6 +989,7 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             }
                         }
                     }
+#if 0
                     // Tail number could be Odd or Even
                     else if constexpr(BlkGemmPipelineVer == BlockGemmPipelineVersion::v4)
                     {
@@ -951,6 +1022,7 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             Run(kernel);
                         }
                     }
+#endif
                     else
                     {
                         if(GridwiseGemm::CalculateKBlockLoopTailNum(K_split) == TailNumber::Odd)
@@ -959,7 +1031,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                 GridwiseGemm,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
+                                DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                 DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                DeviceOp::Block2ETileMap,
                                 ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                 true,
                                 InMemoryDataOperationEnum::Set,
@@ -973,7 +1047,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                                 GridwiseGemm,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
+                                DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                                 DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                                DeviceOp::Block2ETileMap,
                                 ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                                 true,
                                 InMemoryDataOperationEnum::Set,
@@ -992,7 +1068,9 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             GridwiseGemm,
                             DeviceOp::AGridDesc_AK0_M_AK1,
                             DeviceOp::BGridDesc_BK0_N_BK1,
+                            DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
                             DeviceOp::EGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+                            DeviceOp::Block2ETileMap,
                             ComputePtrOffsetOfStridedBatch<I1, I1, I0>,
                             false,
                             InMemoryDataOperationEnum::Set,

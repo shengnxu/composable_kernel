@@ -494,7 +494,7 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
     }
 
     __host__ __device__ static auto MakeDsGridDescriptor_M_N(
-        index_t M, index_t MPad, index_t N, index_t NPad, std::array<index_t, NumDTensor> StrideDs)
+        index_t M, index_t MPad, index_t N, index_t NPad, Array<index_t, NumDTensor> StrideDs)
     {
         return generate_tuple(
             [&](auto i) {
@@ -525,7 +525,7 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
                          index_t K_,
                          index_t StrideA_,
                          index_t StrideB_,
-                         std::array<index_t, NumDTensor> StrideDs_,
+                         Array<index_t, NumDTensor> StrideDs_,
                          index_t StrideC_,
                          index_t KBatch_)
             : M{M_},
@@ -571,7 +571,7 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
         index_t K;
         index_t StrideA;
         index_t StrideB;
-        std::array<index_t, NumDTensor> StrideDs;
+        Array<index_t, NumDTensor> StrideDs;
         index_t StrideC;
         index_t KBatch;
         index_t MPadded;
@@ -589,14 +589,14 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
     {
         __host__ Argument(const ADataType* p_a_grid_,
                           const BDataType* p_b_grid_,
-                          std::array<const void*, NumDTensor> p_ds_grid_,
+                          DsGridPointer p_ds_grid_,
                           CDataType* p_c_grid_,
                           index_t M_,
                           index_t N_,
                           index_t K_,
                           index_t StrideA_,
                           index_t StrideB_,
-                          std::array<index_t, NumDTensor> StrideDs_,
+                          Array<index_t, NumDTensor> StrideDs_,
                           index_t StrideC_,
                           index_t k_batch_,
                           AElementwiseOperation a_element_op_,
@@ -605,20 +605,12 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
             : Problem{M_, N_, K_, StrideA_, StrideB_, StrideDs_, StrideC_, k_batch_},
               p_a_grid{p_a_grid_},
               p_b_grid{p_b_grid_},
-              p_ds_grid{},
+              p_ds_grid{p_ds_grid_},
               p_c_grid{p_c_grid_},
               a_element_op{a_element_op_},
               b_element_op{b_element_op_},
               c_element_op{c_element_op_}
         {
-
-            // populate pointer, desc for Ds
-            static_for<0, NumDTensor, 1>{}([&](auto i) {
-                using DDataType_ = remove_cvref_t<tuple_element_t<i.value, DsDataType>>;
-
-                // D pointer
-                p_ds_grid(i) = static_cast<const DDataType_*>(p_ds_grid_[i]);
-            });
         }
 
         const ADataType* p_a_grid;
@@ -1195,7 +1187,7 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
     }
 
     template <typename CGridDesc>
-    __device__ static constexpr auto MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
+    __host__ __device__ static constexpr auto MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
         const CGridDesc& c_grid_desc_m_n, index_t MBlock, index_t NBlock)
     {
         const auto c_grid_desc_mblock_mperblock_nblock_nperblock = transform_tensor_descriptor(
@@ -1215,17 +1207,28 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
 
     template <bool HasMainKBlockLoop,
               InMemoryDataOperationEnum CGlobalMemoryDataOperation,
-              TailNumber TailNum = TailNumber::Odd>
-    __device__ static void Run(const ADataType* p_a_grid,
-                               const BDataType* p_b_grid,
-                               DsGridPointer& p_ds_grid,
-                               CDataType* p_c_grid,
-                               void* p_shared,
-                               const Problem& problem,
-                               AElementwiseOperation a_element_op,
-                               BElementwiseOperation b_element_op,
-                               CElementwiseOperation c_element_op)
+              TailNumber TailNum = TailNumber::Odd,
+              typename AGridDesc_AK0_M_K1,
+              typename BGridDesc_BK0_N_K1,
+              typename DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+              typename CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
+              typename Block2CTileMap>
+    __device__ static void
+    Run(const ADataType* p_a_grid,
+        const BDataType* p_b_grid,
+        DsGridPointer& p_ds_grid,
+        CDataType* p_c_grid,
+        void* p_shared,
+        AGridDesc_AK0_M_K1 a_grid_desc_ak0_m_ak1,
+        BGridDesc_BK0_N_K1 b_grid_desc_bk0_n_bk1,
+        DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock ds_grid_desc_mblock_mperblock_nblock_nperblock,
+        CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock c_grid_desc_mblock_mperblock_nblock_nperblock,
+        Block2CTileMap block_2_ctile_map,
+        AElementwiseOperation a_element_op,
+        BElementwiseOperation b_element_op,
+        CElementwiseOperation c_element_op)
     {
+#if 0
         const auto a_grid_desc_ak0_m_ak1 = MakeAGridDescriptor_AK0_M_AK1(
             problem.M, problem.MPadded, problem.K, problem.KPadded, problem.StrideA, problem.AK0);
         const auto b_grid_desc_bk0_n_bk1 = MakeBGridDescriptor_BK0_N_BK1(
@@ -1237,15 +1240,25 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
             MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
                 c_grid_desc_m_n, problem.MBlock, problem.NBlock);
 
+           const auto ds_grid_desc_m_n = MakeDsGridDescriptor_M_N(
+                problem.M, problem.MPadded, problem.N, problem.NPadded, problem.StrideDs);
+
+            const auto ds_grid_desc_mblock_mperblock_nblock_nperblock =
+                MakeDsGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
+                    ds_grid_desc_m_n, problem.MBlock, problem.NBlock);
+
+
+
+        // divide block work by [M, N]
+        const auto block_2_ctile_map = Block2CTileMap{problem.M, problem.N, 4};
+#endif
+
         const auto a_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_a_grid, a_grid_desc_ak0_m_ak1.GetElementSpaceSize());
         const auto b_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_b_grid, b_grid_desc_bk0_n_bk1.GetElementSpaceSize());
         auto c_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_c_grid, c_grid_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize());
-
-        // divide block work by [M, N]
-        const auto block_2_ctile_map = Block2CTileMap{problem.M, problem.N, 4};
 
         const auto block_work_idx =
             block_2_ctile_map.CalculateBottomIndex(make_multi_index(get_block_1d_id()));
@@ -1494,17 +1507,11 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
 
             using EDataType = CDataType;
 
-            const auto ds_grid_desc_m_n = MakeDsGridDescriptor_M_N(
-                problem.M, problem.MPadded, problem.N, problem.NPadded, problem.StrideDs);
-
-            const auto ds_grid_desc_mblock_mperblock_nblock_nperblock =
-                MakeDsGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
-                    ds_grid_desc_m_n, problem.MBlock, problem.NBlock);
-
             const auto ds_grid_buf = generate_tuple(
                 [&](auto i) {
                     return make_dynamic_buffer<AddressSpaceEnum::Global>(
-                        p_ds_grid[i], ds_grid_desc_m_n[i].GetElementSpaceSize());
+                        p_ds_grid[i],
+                        ds_grid_desc_mblock_mperblock_nblock_nperblock[i].GetElementSpaceSize());
                 },
                 Number<NumDTensor>{});
 
@@ -1638,6 +1645,56 @@ struct GridwiseGemmMultiD_xdl_cshuffle_v3
                 }
             });
         }
+    }
+
+    template <bool HasMainKBlockLoop,
+              InMemoryDataOperationEnum CGlobalMemoryDataOperation,
+              TailNumber TailNum = TailNumber::Odd>
+    __device__ static void Run(const ADataType* p_a_grid,
+                               const BDataType* p_b_grid,
+                               DsGridPointer& p_ds_grid,
+                               CDataType* p_c_grid,
+                               void* p_shared,
+                               const Problem& problem,
+                               AElementwiseOperation a_element_op,
+                               BElementwiseOperation b_element_op,
+                               CElementwiseOperation c_element_op)
+    {
+        const auto a_grid_desc_ak0_m_ak1 = MakeAGridDescriptor_AK0_M_AK1(
+            problem.M, problem.MPadded, problem.K, problem.KPadded, problem.StrideA, problem.AK0);
+        const auto b_grid_desc_bk0_n_bk1 = MakeBGridDescriptor_BK0_N_BK1(
+            problem.K, problem.KPadded, problem.N, problem.NPadded, problem.StrideB, problem.BK0);
+        const auto c_grid_desc_m_n = MakeCGridDescriptor_M_N<CLayout>(
+            problem.M, problem.MPadded, problem.N, problem.NPadded, problem.StrideC);
+
+        const auto c_grid_desc_mblock_mperblock_nblock_nperblock =
+            MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
+                c_grid_desc_m_n, problem.MBlock, problem.NBlock);
+
+        const auto ds_grid_desc_m_n = MakeDsGridDescriptor_M_N(
+            problem.M, problem.MPadded, problem.N, problem.NPadded, problem.StrideDs);
+
+        const auto ds_grid_desc_mblock_mperblock_nblock_nperblock =
+            MakeDsGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
+                ds_grid_desc_m_n, problem.MBlock, problem.NBlock);
+
+        // divide block work by [M, N]
+        const auto block_2_ctile_map = Block2CTileMap{problem.M, problem.N, 4};
+
+        Run<HasMainKBlockLoop, CGlobalMemoryDataOperation, TailNum>(
+            p_a_grid,
+            p_b_grid,
+            p_ds_grid,
+            p_c_grid,
+            p_shared,
+            a_grid_desc_ak0_m_ak1,
+            b_grid_desc_bk0_n_bk1,
+            ds_grid_desc_mblock_mperblock_nblock_nperblock,
+            c_grid_desc_mblock_mperblock_nblock_nperblock,
+            block_2_ctile_map,
+            a_element_op,
+            b_element_op,
+            c_element_op);
     }
 
     template <bool HasMainKBlockLoop,
