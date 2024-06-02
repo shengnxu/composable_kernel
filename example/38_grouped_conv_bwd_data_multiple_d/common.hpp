@@ -47,7 +47,7 @@ struct ExecutionConfig final
 #define DefaultConvParams                                                                \
     ck::utils::conv::ConvParam                                                           \
     {                                                                                    \
-        NDimSpatial, 32, 4, 192, 192, {3, 3}, {28, 28}, {1, 1}, {1, 1}, {1, 1}, { 1, 1 } \
+        NDimSpatial, 1, 256, 192, 64, {3, 3}, {56, 56}, {2, 2}, {1, 1}, {1, 1}, { 1, 1 } \
     }
 
 inline void print_help_msg()

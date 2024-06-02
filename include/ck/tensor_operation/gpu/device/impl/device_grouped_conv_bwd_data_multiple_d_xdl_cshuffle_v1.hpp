@@ -28,6 +28,13 @@ namespace device {
 namespace {
 
 template <typename GridwiseGemm,
+          typename ADataType,
+          typename BDataType,
+          typename DsPointer,
+          typename EDataType,
+          typename AElementwiseOperation,
+          typename BElementwiseOperation,
+          typename CDEElementwiseOperation,
           typename AGridDesc_AK0_M_K1,
           typename BGridDesc_BK0_N_K1,
           typename DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -44,7 +51,13 @@ __global__ void
 #endif
     // __attribute__((amdgpu_waves_per_eu(1, 1)))
     kernel_grouped_conv_bwd_data_xdl_cshuffle_v3(
-        typename GridwiseGemm::Argument karg,
+        const ADataType* __restrict__ p_a_grid,
+        const BDataType* __restrict__ p_b_grid,
+        DsPointer p_ds_grid,
+        EDataType* __restrict__ p_e_grid,
+        const AElementwiseOperation a_element_op,
+        const BElementwiseOperation b_element_op,
+        const CDEElementwiseOperation cde_element_op,
         const AGridDesc_AK0_M_K1 a_grid_desc_ak0_m_ak1,
         const BGridDesc_BK0_N_K1 b_grid_desc_bk0_n_bk1,
         const DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock
@@ -75,22 +88,22 @@ __global__ void
     const auto ds_batch_offset = compute_ptr_offset_of_batch.GetDsPtrOffset(g_idx);
 
     static_for<0, GridwiseGemm::NumDTensor, 1>{}(
-        [&](auto i) { p_ds_grid_grp(i) = karg.p_ds_grid[i] + ds_batch_offset[i]; });
+        [&](auto i) { p_ds_grid_grp(i) = p_ds_grid[i] + ds_batch_offset[i]; });
 
     GridwiseGemm::template Run<HasMainKBlockLoop, CGlobalMemoryDataOperation, TailNum>(
-        karg.p_a_grid + a_batch_offset,
-        karg.p_b_grid + b_batch_offset,
+        p_a_grid + a_batch_offset,
+        p_b_grid + b_batch_offset,
         p_ds_grid_grp,
-        karg.p_c_grid + e_batch_offset,
+        p_e_grid + e_batch_offset,
         p_shared,
         a_grid_desc_ak0_m_ak1,
         b_grid_desc_bk0_n_bk1,
         ds_grid_desc_mblock_mperblock_nblock_nperblock,
         c_grid_desc_mblock_mperblock_nblock_nperblock,
         block_2_ctile_map,
-        karg.a_element_op,
-        karg.b_element_op,
-        karg.c_element_op);
+        a_element_op,
+        b_element_op,
+        cde_element_op);
 #else
     ignore = karg;
 #endif // end of if (defined(__gfx908__) || defined(__gfx90a__))
@@ -214,7 +227,7 @@ template <index_t NDimSpatial,
           index_t CDEBlockTransferScalarPerVector_NPerBlock,
           typename AComputeType                       = ADataType,
           typename BComputeType                       = AComputeType,
-          BlockGemmPipelineScheduler BlkGemmPipeSched = BlockGemmPipelineScheduler::Intrawave,
+          BlockGemmPipelineScheduler BlkGemmPipeSched = BlockGemmPipelineScheduler::Interwave,
           BlockGemmPipelineVersion BlkGemmPipelineVer = BlockGemmPipelineVersion::v1>
 struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
     : public DeviceGroupedConvBwdDataMultipleD<NDimSpatial,
@@ -330,6 +343,12 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
             a_grid_desc_ak0_m_ak1, b_grid_desc_bk0_n_bk1, ds_grid_desc_m_n, e_grid_desc_m_n);
     }
 
+    static constexpr auto cde_nperblock_sequence = generate_sequence_v2(
+        [](auto) { return Number<CDEBlockTransferScalarPerVector_NPerBlock>{}; },
+        Number<NumDTensor + 1>{});
+
+    using Sequence_CDEBlockTransferScalarPerVector_NPerBlock = decltype(cde_nperblock_sequence);
+
     using GridwiseGemm = GridwiseGemmMultiD_xdl_cshuffle_v3<
         tensor_layout::gemm::RowMajor,
         tensor_layout::gemm::RowMajor,
@@ -374,7 +393,7 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
         CShuffleMXdlPerWavePerShuffle,
         CShuffleNXdlPerWavePerShuffle,
         CDEBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
-        Sequence<CDEBlockTransferScalarPerVector_NPerBlock>,
+        Sequence_CDEBlockTransferScalarPerVector_NPerBlock,
         BlkGemmPipeSched,
         BlkGemmPipelineVer,
         AComputeType,
@@ -798,7 +817,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             dim3(gdx, gdy, gdz),
                             dim3(BlockSize),
                             0,
-                            gemm_arg,
+                            arg.p_a_grid_,
+                            arg.p_b_grid_,
+                            arg.p_ds_grid_,
+                            arg.p_e_grid_,
+                            arg.a_element_op_,
+                            arg.b_element_op_,
+                            arg.cde_element_op_,
                             arg.a_grid_desc_ak0_m_ak1_container_[i],
                             arg.b_grid_desc_bk0_n_bk1_container_[i],
                             arg.ds_grid_desc_mblock_mperblock_nblock_nperblock_container_[i],
@@ -817,6 +842,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                     {
                         const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                             GridwiseGemm,
+                            ADataType,
+                            BDataType,
+                            typename GridwiseGemm::DsGridPointer,
+                            EDataType,
+                            AElementwiseOp,
+                            BElementwiseOp,
+                            CDEElementwiseOp,
                             DeviceOp::AGridDesc_AK0_M_AK1,
                             DeviceOp::BGridDesc_BK0_N_BK1,
                             DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -835,6 +867,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                         {
                             const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                 GridwiseGemm,
+                                ADataType,
+                                BDataType,
+                                typename GridwiseGemm::DsGridPointer,
+                                EDataType,
+                                AElementwiseOp,
+                                BElementwiseOp,
+                                CDEElementwiseOp,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
                                 DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -852,6 +891,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                         {
                             const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                 GridwiseGemm,
+                                ADataType,
+                                BDataType,
+                                typename GridwiseGemm::DsGridPointer,
+                                EDataType,
+                                AElementwiseOp,
+                                BElementwiseOp,
+                                CDEElementwiseOp,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
                                 DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -871,6 +917,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -892,6 +945,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -913,6 +973,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -934,6 +1001,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -954,6 +1028,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -975,6 +1056,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                             {
                                 const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                     GridwiseGemm,
+                                    ADataType,
+                                    BDataType,
+                                    typename GridwiseGemm::DsGridPointer,
+                                    EDataType,
+                                    AElementwiseOp,
+                                    BElementwiseOp,
+                                    CDEElementwiseOp,
                                     DeviceOp::AGridDesc_AK0_M_AK1,
                                     DeviceOp::BGridDesc_BK0_N_BK1,
                                     DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -1029,6 +1117,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                         {
                             const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                 GridwiseGemm,
+                                ADataType,
+                                BDataType,
+                                typename GridwiseGemm::DsGridPointer,
+                                EDataType,
+                                AElementwiseOp,
+                                BElementwiseOp,
+                                CDEElementwiseOp,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
                                 DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -1045,6 +1140,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                         {
                             const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                                 GridwiseGemm,
+                                ADataType,
+                                BDataType,
+                                typename GridwiseGemm::DsGridPointer,
+                                EDataType,
+                                AElementwiseOp,
+                                BElementwiseOp,
+                                CDEElementwiseOp,
                                 DeviceOp::AGridDesc_AK0_M_AK1,
                                 DeviceOp::BGridDesc_BK0_N_BK1,
                                 DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -1066,6 +1168,13 @@ struct DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1
                     {
                         const auto kernel = kernel_grouped_conv_bwd_data_xdl_cshuffle_v3<
                             GridwiseGemm,
+                            ADataType,
+                            BDataType,
+                            typename GridwiseGemm::DsGridPointer,
+                            EDataType,
+                            AElementwiseOp,
+                            BElementwiseOp,
+                            CDEElementwiseOp,
                             DeviceOp::AGridDesc_AK0_M_AK1,
                             DeviceOp::BGridDesc_BK0_N_BK1,
                             DeviceOp::DsGridDesc_MBlock_MPerBlock_NBlock_NPerBlock,
