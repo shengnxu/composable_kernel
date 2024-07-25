@@ -349,8 +349,8 @@ struct DeviceReduceThreadWiseMultiD : public DeviceReduceMultiD<InDataType,
         if(pArg->invariant_lowest_length % OutDstVectorSize != 0)
             return (false);
 
-        std::cerr << "reduce_total_length = " << pArg->reduce_total_length
-                  << " KThreadSliceSize = " << KThreadSliceSize << std::endl;
+        // std::cerr << "reduce_total_length = " << pArg->reduce_total_length
+        //           << " KThreadSliceSize = " << KThreadSliceSize << std::endl;
 
         // cases with big reduce_total_length should be handled by Blockwise kernel
         if(pArg->reduce_total_length / KThreadSliceSize >= 32)

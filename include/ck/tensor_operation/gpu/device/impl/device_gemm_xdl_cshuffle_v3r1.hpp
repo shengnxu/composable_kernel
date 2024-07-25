@@ -70,9 +70,9 @@ template <typename ALayout,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
           BlockGemmPipelineScheduler BlkGemmPipeSched = BlockGemmPipelineScheduler::Intrawave,
           BlockGemmPipelineVersion BlkGemmPipelineVer = BlockGemmPipelineVersion::v1,
-          typename ReduceDataType                     = CDataType,
           typename ComputeTypeA                       = CDataType,
-          typename ComputeTypeB                       = ComputeTypeA>
+          typename ComputeTypeB                       = ComputeTypeA,
+          typename ReduceDataType                     = CDataType>
 struct DeviceGemm_Xdl_CShuffleV3R1 : public DeviceGemmV2R1<ALayout,
                                                            BLayout,
                                                            DsLayout,
@@ -265,15 +265,18 @@ struct DeviceGemm_Xdl_CShuffleV3R1 : public DeviceGemmV2R1<ALayout,
 
             float ave_time = 0;
 
-            if(reduce.IsSupportedArgument(argument_ptr.get()))
-            {
-                ave_time = invoker_ptr->Run(argument_ptr.get(), stream_config);
-            }
-            else
-            {
-                throw std::runtime_error(
-                    "The runtime parameters seems not supported by the device instance, exiting!");
-            }
+            ave_time = invoker_ptr->Run(argument_ptr.get(), stream_config);
+
+            // if(reduce.IsSupportedArgument(argument_ptr.get()))
+            // {
+            //     ave_time = invoker_ptr->Run(argument_ptr.get(), stream_config);
+            // }
+            // else
+            // {
+            //     throw std::runtime_error(
+            //         "The runtime parameters seems not supported by the device instance,
+            //         exiting!");
+            // }
 
             return ave_time;
         }
@@ -690,7 +693,7 @@ struct DeviceGemm_Xdl_CShuffleV3R1 : public DeviceGemmV2R1<ALayout,
         if(!(!(arg.IsReduceAdd() || NumDTensor > 0) &&
              std::is_same<CDataType, ReduceDataType>::value))
         {
-            std::cout << "using workspace" << std::endl;
+            // std::cout << "using workspace" << std::endl;
             return arg.M * arg.N * arg.KBatch * sizeof(ReduceDataType);
         }
 
