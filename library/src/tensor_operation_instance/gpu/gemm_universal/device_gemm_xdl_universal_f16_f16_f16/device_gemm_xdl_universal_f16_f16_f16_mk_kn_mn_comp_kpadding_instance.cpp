@@ -10,7 +10,7 @@ namespace instance {
 
 void add_device_gemm_xdl_universal_f16_f16_f16_mk_kn_mn_comp_kpadding_instances(
     std::vector<std::unique_ptr<
-        DeviceGemmV2<Row, Row, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>>>&
+        DeviceGemmV2R1<Row, Row, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>>>&
         instances)
 {
     add_device_operation_instances(

@@ -9,7 +9,7 @@
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
-#include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl_cshuffle_v3.hpp"
+#include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl_cshuffle_v3r1.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
 #include "ck/library/tensor_operation_instance/gpu/gemm_universal.hpp"
@@ -27,10 +27,12 @@ namespace profiler {
 template <typename ADataType,
           typename BDataType,
           typename ComputeDataType,
+          typename DsDataType,
           typename AccDataType,
           typename CDataType,
           typename ALayout,
           typename BLayout,
+          typename DsLayout,
           typename CLayout>
 bool profile_gemm_universal_impl(int do_verification,
                                  int init_method,
@@ -106,15 +108,17 @@ bool profile_gemm_universal_impl(int do_verification,
     a_device_buf.ToDevice(a_m_k.mData.data());
     b_device_buf.ToDevice(b_k_n.mData.data());
 
-    using DeviceOp = ck::tensor_operation::device::DeviceGemmV2<ALayout,
-                                                                BLayout,
-                                                                CLayout,
-                                                                ADataType,
-                                                                BDataType,
-                                                                CDataType,
-                                                                AElementOp,
-                                                                BElementOp,
-                                                                CElementOp>;
+    using DeviceOp = ck::tensor_operation::device::DeviceGemmV2R1<ALayout,
+                                                                  BLayout,
+                                                                  DsLayout,
+                                                                  CLayout,
+                                                                  ADataType,
+                                                                  BDataType,
+                                                                  DsDataType,
+                                                                  CDataType,
+                                                                  AElementOp,
+                                                                  BElementOp,
+                                                                  CElementOp>;
 
     // get device op instances
     const auto op_ptrs = ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<
@@ -166,12 +170,14 @@ bool profile_gemm_universal_impl(int do_verification,
             auto argument_ptr =
                 op_ptr->MakeArgumentPointer(static_cast<ADataType*>(a_device_buf.GetDeviceBuffer()),
                                             static_cast<BDataType*>(b_device_buf.GetDeviceBuffer()),
+                                            {},
                                             static_cast<CDataType*>(c_device_buf.GetDeviceBuffer()),
                                             M,
                                             N,
                                             K,
                                             StrideA,
                                             StrideB,
+                                            {},
                                             StrideC,
                                             kbatch_curr,
                                             a_element_op,
@@ -182,7 +188,10 @@ bool profile_gemm_universal_impl(int do_verification,
 
             if(op_ptr->IsSupportedArgument(argument_ptr.get()))
             {
-
+                DeviceMem gemm_workspace_dev(op_ptr->GetWorkSpaceSize(argument_ptr.get()));
+                op_ptr->SetWorkSpacePointer(
+                    argument_ptr.get(), gemm_workspace_dev.GetDeviceBuffer(), StreamConfig{});
+                    
                 // re-init C to zero before profiling next kernel
                 c_device_buf.SetZero();
 
@@ -249,7 +258,7 @@ bool profile_gemm_universal_impl(int do_verification,
                           << " TFlops, " << gb_per_sec << " GB/s, " << op_name << ", KBatch "
                           << kbatch_curr << std::endl;
 
-                if(tflops > best_tflops)
+                if(tflops > best_tflops && (ave_time>1e-10))
                 {
                     best_op_name    = op_name;
                     best_tflops     = tflops;

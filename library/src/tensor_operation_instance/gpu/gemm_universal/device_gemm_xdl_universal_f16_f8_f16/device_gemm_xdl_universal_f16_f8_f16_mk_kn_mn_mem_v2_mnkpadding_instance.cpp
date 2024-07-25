@@ -13,7 +13,7 @@ using F32 = float;
 
 void add_device_gemm_xdl_universal_f16_f8_f16_mk_kn_mn_mem_v2_mnkpadding_instances(
     std::vector<std::unique_ptr<
-        DeviceGemmV2<Row, Row, Row, F16, F8, F16, PassThrough, PassThrough, PassThrough>>>&
+        DeviceGemmV2R1<Row, Row, Row, F16, F8, F16, PassThrough, PassThrough, PassThrough>>>&
         instances)
 {
     add_device_operation_instances(
