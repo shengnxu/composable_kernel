@@ -8,7 +8,7 @@ namespace tensor_operation {
 namespace device {
 namespace instance {
 
-void add_device_gemm_xdl_universal_bf16_bf16_bf16_mk_nk_mn_mem_v2_default_instances(
+void add_device_gemm_xdl_universal_reduce_bf16_bf16_bf16_mk_nk_mn_mem_v2_default_instances(
     std::vector<std::unique_ptr<DeviceGemmV2R1<Row,
                                                Col,
                                                DsLayout,

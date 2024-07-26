@@ -156,7 +156,7 @@ bool profile_gemm_universal_reduce_impl(int do_verification,
     // profile device GEMM instances
     for(auto& op_ptr : op_ptrs)
     {
-        std::vector<int> kbatch_list = {1, 2, 4, 8, 12, 16, 19, 20, 32, 38};
+        std::vector<int> kbatch_list = {1, 2, 4, 8, 16, 19};
 
         if(KBatch > 0)
         {
@@ -261,7 +261,7 @@ bool profile_gemm_universal_reduce_impl(int do_verification,
                 }
 #endif
 
-                if(tflops > best_tflops)
+                if(ave_time < best_ave_time && ave_time>1e-8)
                 {
                     best_op_name    = op_name;
                     best_tflops     = tflops;
