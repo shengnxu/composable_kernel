@@ -250,7 +250,8 @@ float fmha_fwd_dispatch(fmha_fwd_traits traits,
 {
     if(1 < args.num_splits)
     {
-        return fmha_fwd_splitkv(traits, args, config);
+        // return fmha_fwd_splitkv(traits, args, config);
+        return 0;
     }
     else
     {

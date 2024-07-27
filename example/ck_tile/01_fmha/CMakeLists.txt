@@ -1,7 +1,7 @@
 # generate a list of kernels, but not actually emit files at config stage
 execute_process(
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/generate.py
-  --api fwd,fwd_splitkv --list_blobs ${CMAKE_CURRENT_BINARY_DIR}/fwd_blob_list.txt
+  --api fwd --list_blobs ${CMAKE_CURRENT_BINARY_DIR}/fwd_blob_list.txt --filter fmha_fwd_d256_fp16_group_hbs_b128x128x32x256x32x256_r4x1x1_w32x32x16_qr_vc_psskddv_alibi_mask_lse
 )
 
 execute_process(
@@ -17,7 +17,7 @@ file(STRINGS ${CMAKE_CURRENT_BINARY_DIR}/bwd_blob_list.txt FMHA_BWD_GEN_BLOBS)
 add_custom_command(
   OUTPUT ${FMHA_FWD_GEN_BLOBS}
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/generate.py
-  --api fwd,fwd_splitkv --output_dir ${CMAKE_CURRENT_BINARY_DIR}
+  --api fwd --output_dir ${CMAKE_CURRENT_BINARY_DIR} --filter fmha_fwd_d256_fp16_group_hbs_b128x128x32x256x32x256_r4x1x1_w32x32x16_qr_vc_psskddv_alibi_mask_lse
 )
 
 add_custom_command(
@@ -54,8 +54,8 @@ set(EXAMPLE_FMHA_BWD_COMPILE_OPTIONS)
 # NOTE: we turn off undefined-func-template to let source compile without explicit declare function specializations
 #       ... because they are auto-generated
 if(FMHA_FWD_FAST_EXP2)
-	list(APPEND EXAMPLE_FMHA_FWD_COMPILE_OPTIONS -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=1 -fgpu-flush-denormals-to-zero)
-  list(APPEND EXAMPLE_FMHA_BWD_COMPILE_OPTIONS -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=1 -fgpu-flush-denormals-to-zero)
+	list(APPEND EXAMPLE_FMHA_FWD_COMPILE_OPTIONS -v --save-temps -Wno-gnu-line-marker -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=1 -fgpu-flush-denormals-to-zero)
+  list(APPEND EXAMPLE_FMHA_BWD_COMPILE_OPTIONS -v --save-temps -Wno-gnu-line-marker -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=1 -fgpu-flush-denormals-to-zero)
 else()
 	list(APPEND EXAMPLE_FMHA_FWD_COMPILE_OPTIONS -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=0)
   list(APPEND EXAMPLE_FMHA_BWD_COMPILE_OPTIONS -Wno-undefined-func-template -DCK_TILE_FMHA_FWD_FAST_EXP2=0)
