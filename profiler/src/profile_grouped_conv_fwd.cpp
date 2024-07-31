@@ -66,13 +66,14 @@ int profile_grouped_conv_fwd(int argc, char* argv[])
         return 1;
     }
 
-    const auto data_type       = static_cast<ConvDataType>(std::stoi(argv[2]));
-    const auto layout          = static_cast<ConvLayout>(std::stoi(argv[3]));
-    const bool do_verification = std::stoi(argv[4]);
-    const int init_method      = std::stoi(argv[5]);
-    const bool do_log          = std::stoi(argv[6]);
-    const bool time_kernel     = std::stoi(argv[7]);
-    const int num_dim_spatial  = std::stoi(argv[8]);
+    const auto data_type                 = static_cast<ConvDataType>(std::stoi(argv[2]));
+    const auto layout                    = static_cast<ConvLayout>(std::stoi(argv[3]));
+    const bool do_verification           = std::stoi(argv[4]);
+    const int init_method                = std::stoi(argv[5]);
+    const bool do_log                    = std::stoi(argv[6]);
+    const bool time_kernel               = std::stoi(argv[7]);
+    const int num_dim_spatial            = std::stoi(argv[8]);
+    const auto dynamicActivationFunction = argv[25];
 
     // 8 for control, 1 for num_dim_spatial, 4 for G/N/K/C, and 6 * num_dim_spatial
     if(argc != 8 + 1 + 4 + 6 * num_dim_spatial)
@@ -87,8 +88,8 @@ int profile_grouped_conv_fwd(int argc, char* argv[])
     using F16  = ck::half_t;
     using BF16 = ck::bhalf_t;
     using INT8 = int8_t;
-    using F8   = ck::f8_t;
-    using BF8  = ck::bf8_t;
+    // using F8   = ck::f8_t;
+    // using BF8  = ck::bf8_t;
 
     //
     using GNWC   = ck::tensor_layout::convolution::GNWC;
@@ -147,7 +148,7 @@ int profile_grouped_conv_fwd(int argc, char* argv[])
                                                                 OutDataType,
                                                                 AComputeType,
                                                                 BComputeType>(
-            do_verification, init_method, do_log, time_kernel, params);
+            do_verification, init_method, do_log, time_kernel, params, dynamicActivationFunction);
 
         return pass ? 0 : 1;
     };
@@ -271,22 +272,22 @@ int profile_grouped_conv_fwd(int argc, char* argv[])
             return profile(
                 I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, INT8{}, INT8{}, INT8{}, INT8{}, INT8{});
         }
-        else if(data_type == ConvDataType::F8_F8_F8)
-        {
-            return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, F8{}, F8{}, F8{}, F8{}, F8{});
-        }
-        else if(data_type == ConvDataType::BF8_BF8_F8)
-        {
-            return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, BF8{}, BF8{}, F8{}, BF8{}, BF8{});
-        }
-        else if(data_type == ConvDataType::F8_BF8_F8)
-        {
-            return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, F8{}, BF8{}, F8{}, F8{}, BF8{});
-        }
-        else if(data_type == ConvDataType::BF8_F8_F8)
-        {
-            return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, BF8{}, F8{}, F8{}, BF8{}, F8{});
-        }
+        // else if(data_type == ConvDataType::F8_F8_F8)
+        // {
+        //     return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, F8{}, F8{}, F8{}, F8{}, F8{});
+        // }
+        // else if(data_type == ConvDataType::BF8_BF8_F8)
+        // {
+        //     return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, BF8{}, BF8{}, F8{}, BF8{}, BF8{});
+        // }
+        // else if(data_type == ConvDataType::F8_BF8_F8)
+        // {
+        //     return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, F8{}, BF8{}, F8{}, F8{}, BF8{});
+        // }
+        // else if(data_type == ConvDataType::BF8_F8_F8)
+        // {
+        //     return profile(I3, NDHWGC{}, GKZYXC{}, NDHWGK{}, BF8{}, F8{}, F8{}, BF8{}, F8{});
+        // }
     }
 
     std::cout << "this data_type & layout is not implemented" << std::endl;
