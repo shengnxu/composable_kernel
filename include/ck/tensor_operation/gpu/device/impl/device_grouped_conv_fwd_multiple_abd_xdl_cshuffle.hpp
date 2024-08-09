@@ -83,9 +83,9 @@ __global__ void
             BsPointer p_bs_grid,
             DsPointer p_ds_grid,
             EDataType* __restrict__ p_e_grid,
-            const AElementwiseOperation a_element_op,
-            const BElementwiseOperation b_element_op,
-            const CDEElementwiseOperation cde_element_op,
+            AElementwiseOperation a_element_op,
+            BElementwiseOperation b_element_op,
+            CDEElementwiseOperation cde_element_op,
             const index_t groups_count,
             const AGridDesc_AK0_M_AK1 a_grid_desc_k0_m_k1,
             const BGridDesc_BK0_N_BK1 b_grid_desc_k0_n_k1,
@@ -122,6 +122,19 @@ __global__ void
 
     static_for<0, NumDTensor, 1>{}(
         [&](auto i) { p_ds_grid_grp(i) = p_ds_grid[i] + ds_batch_offset[i]; });
+
+    if constexpr(is_same_v<AElementwiseOperation, element_wise::DynamicUnaryOp>)
+    {
+        a_element_op.InitUnaryOpPtrOnDevice();
+    }
+    if constexpr(is_same_v<BElementwiseOperation, element_wise::DynamicUnaryOp>)
+    {
+        b_element_op.InitUnaryOpPtrOnDevice();
+    }
+    if constexpr(is_same_v<CDEElementwiseOperation, element_wise::DynamicUnaryOp>)
+    {
+        cde_element_op.InitUnaryOpPtrOnDevice();
+    }
 
     if constexpr(isMultiA || isMultiB)
     {
